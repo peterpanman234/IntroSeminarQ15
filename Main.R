@@ -1,11 +1,15 @@
 install.packages("fastDummies")
 install.packages("dplyr")
+install.packages("marginaleffects")
 
 library(fastDummies)
 library(dplyr)
+library(marginaleffects)
 
 library(readr)
 wide_datasetQ15 <- read_csv("wide_datasetQ15.csv")
+
+set.seed(123)
 
 ### PART 1: DESCRIPTIVE STATISTICS #################################################################################################################################
 
@@ -23,7 +27,7 @@ wide_datasetQ15 %>% distinct(panelist, Income)  # 250 unique panelist, Income pa
 wide_datasetQ15 %>% distinct(panelist, FMYSize)  # 250 unique panelist, FMYSize pairs, meaning FMYSize is constant per household
 wide_datasetQ15 %>% distinct(panelist, `store id`)  # 538 unique panelist, store id pairs, meaning some households visit multiple stores
 
-# Create dummy variables for 1. unique stores and 2. unique customers
+# Create dummy variables for 1. unique days 2. unique weeks 3. unique stores
 wide_datasetQ15_onehot <- dummy_cols(wide_datasetQ15, select_columns = "day", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
 wide_datasetQ15_onehot <- dummy_cols(wide_datasetQ15_onehot, select_columns = "week", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
 wide_datasetQ15_onehot <- dummy_cols(wide_datasetQ15_onehot, select_columns = "store id", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
@@ -34,10 +38,12 @@ wide_datasetQ15_onehot <- dummy_cols(wide_datasetQ15_onehot, select_columns = "s
 # Add dummy for purchase decision, 1 = purchase, 0 = no purchase
 wide_datasetQ15_onehot$purchase <- 1 - wide_datasetQ15_onehot$brand_0
 
-# Remove unused variables
-unused_cols <- c("...1","id","brandbought","sumdollars","brand_0","brand_1","brand_2","brand_3","brand_4","brand_5","brand_6","NoIncome","panelist")
-wide_datasetQ15_onehot <- wide_datasetQ15_onehot %>% select(-all_of(unused_cols))
+# Remove rows for which weekslast = NA, also removes NAs in brandlag
+wide_datasetQ15_onehot <- wide_datasetQ15_onehot[!is.na(wide_datasetQ15_onehot$weekslast), ]
 
+# Remove unused variables (lag_0 removed because of multicollinearity)
+unused_cols <- c("...1","id","brandlag","brandbought","sumdollars","sumvol","sumunits","panelist","brand_0","brand_1","brand_2","brand_3","brand_4","brand_5","brand_6","lag_0","NoIncome")
+wide_datasetQ15_onehot <- wide_datasetQ15_onehot %>% select(-all_of(unused_cols))
 
 ### PROBIT MODEL
 
@@ -46,6 +52,12 @@ binarypurchase_probit_mdl <- glm(purchase ~ . ,
                           family = binomial(link = "probit"),
                           data = wide_datasetQ15_onehot)
 summary(binarypurchase_probit_mdl)
+
+# Calculate marginal effects
+marginal_effects_FMYSize <- coef(binarypurchase_probit_mdl)["FMYSize"] * dnorm(predict(binarypurchase_probit_mdl, type = 'link'))
+
+# Calculate average marginal effect
+avg_marginal_effect_FMYSize <- mean(marginal_effects_FMYSize)
 
 ### LOGIT MODEL
 
